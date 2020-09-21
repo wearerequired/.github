@@ -3,10 +3,8 @@
     "description": "Linting Organization workflow template.",
     "iconName": "example-icon",
     "categories": [
-        "PHP"
-    ],
-    "filePatterns": [
-        "composer.json$",
-        ".*\\.php$"
+        "PHP",
+        "CSS",
+        "JS"
     ]
 }
