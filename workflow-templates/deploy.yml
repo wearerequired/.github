@@ -1,0 +1,104 @@
+name: Deploy
+
+on:
+  deployment:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+      - production
+
+env:
+  ENVIRONMENT_URL: ${{ secrets.ENVIRONMENT_URL }}
+  ENVIRONMENT_URL_PRODUCTION: ${{ secrets.ENVIRONMENT_URL_PRODUCTION }}
+  ENVIRONMENT: staging
+  DEPLOYER_VERSION: 6.8.0
+  SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+  SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
+
+jobs:
+
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set BRANCH
+        run: echo "::set-env name=BRANCH::$(echo ${GITHUB_REF#refs/heads/})"
+
+      - name: Set COMMIT_SHA_SHORT
+        run: echo "::set-env name=COMMIT_SHA_SHORT::$(echo $GITHUB_SHA | cut -c1-8)"
+
+      - name: Set ENVIRONMENT and ENVIRONMENT_URL for production
+        if: ${{ env.BRANCH == 'production' }}
+        run: |
+          echo "::set-env name=ENVIRONMENT::production"
+          echo "::set-env name=ENVIRONMENT_URL::${{ env.ENVIRONMENT_URL_PRODUCTION }}"
+
+      - name: Start deployment
+        if: ${{ github.event_name != 'deployment' }}
+        uses: bobheadxi/deployments@v0.4.2
+        id: deployment
+        with:
+          step: start
+          token: ${{ secrets.GITHUB_TOKEN }}
+          env: ${{ env.ENVIRONMENT }}
+
+      - uses: actions/checkout@v2
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "7.4"
+          coverage: none
+          tools: composer
+
+      - name: Set up SSH and Deployer
+        uses: atymic/deployer-php-action@0.1.1
+        with:
+          ssh-private-key: ${{ secrets.DEPLOYER_SSH_PRIVATE_KEY }}
+          ssh-known-hosts: ${{ secrets.DEPLOYER_SSH_KNOWN_HOSTS }}
+          deployer-version: ${{ env.DEPLOYER_VERSION }}
+
+      - name: Deploy
+        run: |
+          dep deploy $ENVIRONMENT --branch $BRANCH
+
+      - name: Get current date
+        if: ${{ always() }}
+        id: date
+        run: echo "::set-output name=ts::$(date +'%s')"
+
+      - name: Send success Slack notification
+        if: ${{ success() }}
+        uses: Ilshidur/action-slack@2.1.0
+        env:
+          SLACK_CUSTOM_PAYLOAD: '{"icon_emoji":":rocket:","channel":"${{ env.SLACK_CHANNEL }}","username":"Deployer","attachments":[{"author_name":"${{ github.event.sender.login }}","author_link":"${{ github.event.sender.html_url }}","author_icon":"${{ github.event.sender.avatar_url }}","color":"good","pretext":"Project successfully deployed.","fields":[{"title":"Environment","value":"<${{ env.ENVIRONMENT_URL }}|${{ env.ENVIRONMENT_URL }}> [${{ env.ENVIRONMENT }}]","short":true},{"title":"Revision","value":"<https://github.com/${{ github.repository }}/commit/${{ env.COMMIT_SHA_SHORT }}|${{ env.COMMIT_SHA_SHORT }}@${{ env.BRANCH }}>","short":true}],"footer":"<https://github.com/${{ github.repository }}|${{ github.repository }}>","footer_icon":"https://github.githubassets.com/favicon.ico","ts":"${{ steps.date.outputs.ts }}"}]}'
+
+      - name: Send failure Slack notification
+        if: ${{ failure() }}
+        uses: Ilshidur/action-slack@2.1.0
+        env:
+          SLACK_CUSTOM_PAYLOAD: '{"icon_emoji":":boom:","channel":"${{ env.SLACK_CHANNEL }}","username":"Deployer","attachments":[{"author_name":"${{ github.event.sender.login }}","author_link":"${{ github.event.sender.html_url }}","author_icon":"${{ github.event.sender.avatar_url }}","color":"danger","pretext":"Project could not be deployed.","fields":[{"title":"Environment","value":"<${{ env.ENVIRONMENT_URL }}|${{ env.ENVIRONMENT_URL }}> [${{ env.ENVIRONMENT }}]","short":true},{"title":"Revision","value":"<https://github.com/${{ github.repository }}/commit/${{ env.COMMIT_SHA_SHORT }}|${{ env.COMMIT_SHA_SHORT }}@${{ env.BRANCH }}>","short":true}],"footer":"<https://github.com/${{ github.repository }}|${{ github.repository }}>","footer_icon":"https://github.githubassets.com/favicon.ico","ts":"${{ steps.date.outputs.ts }}"}]}'
+
+      - name: Update deployment status (deployment event)
+        uses: bobheadxi/deployments@v0.4.2
+        if: ${{ github.event_name == 'deployment' && always() }}
+        with:
+          step: finish
+          token: ${{ secrets.GITHUB_TOKEN }}
+          env: ${{ env.ENVIRONMENT }}
+          status: ${{ job.status }}
+          env_url: ${{ env.ENVIRONMENT_URL }}
+          deployment_id: ${{ github.event.deployment.id }}
+
+      - name: Update deployment status (push event)
+        uses: bobheadxi/deployments@v0.4.2
+        if: ${{ github.event_name != 'deployment' && always() }}
+        with:
+          step: finish
+          token: ${{ secrets.GITHUB_TOKEN }}
+          env: ${{ env.ENVIRONMENT }}
+          status: ${{ job.status }}
+          env_url: ${{ env.ENVIRONMENT_URL }}
+          deployment_id: ${{ steps.deployment.outputs.deployment_id }}

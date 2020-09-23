@@ -1,0 +1,8 @@
+{
+    "name": "Deployment Organization Workflow",
+    "description": "Workflow template for deployment via Deployer.",
+    "iconName": "deployer-icon",
+    "categories": [
+        "PHP"
+    ]
+}
