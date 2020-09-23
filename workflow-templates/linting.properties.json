@@ -1,7 +1,7 @@
 {
     "name": "Linting Organization Workflow",
-    "description": "Linting Organization workflow template.",
-    "iconName": "example-icon",
+    "description": "Workflow template for linting project files.",
+    "iconName": "linter-icon",
     "categories": [
         "PHP",
         "CSS",
