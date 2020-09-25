@@ -23,6 +23,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Cancel previous jobs
+        uses: styfle/cancel-workflow-action@0.5.0
+        with:
+          access_token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set BRANCH
         run: echo "::set-env name=BRANCH::$(echo ${GITHUB_REF#refs/heads/})"
 
@@ -102,3 +107,10 @@ jobs:
           status: ${{ job.status }}
           env_url: ${{ env.ENVIRONMENT_URL }}
           deployment_id: ${{ steps.deployment.outputs.deployment_id }}
+
+      - name: Unlock deployment if job is cancelled
+        if: ${{ cancelled() }}
+        run: |
+          if hash dep 2>/dev/null; then
+            dep deploy:unlock $ENVIRONMENT
+          fi;
