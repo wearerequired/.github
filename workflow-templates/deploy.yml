@@ -14,7 +14,6 @@ env:
   ENVIRONMENT_URL: ${{ secrets.ENVIRONMENT_URL }}
   ENVIRONMENT_URL_PRODUCTION: ${{ secrets.ENVIRONMENT_URL_PRODUCTION }}
   ENVIRONMENT: staging
-  DEPLOYER_VERSION: 6.8.0
 
 jobs:
 
@@ -87,12 +86,12 @@ jobs:
 
       - uses: actions/checkout@v2
 
-      - name: Set up PHP
+      - name: Set up PHP and Deployer
         uses: shivammathur/setup-php@v2
         with:
           php-version: "7.4"
           coverage: none
-          tools: deployer
+          tools: deployer:6.8.0
 
       - name: Set up SSH
         run: |
