@@ -7,14 +7,14 @@ on:
     branches:
       - master
       - production
+    paths-ignore:
+      - '**.md'
 
 env:
   ENVIRONMENT_URL: ${{ secrets.ENVIRONMENT_URL }}
   ENVIRONMENT_URL_PRODUCTION: ${{ secrets.ENVIRONMENT_URL_PRODUCTION }}
   ENVIRONMENT: staging
   DEPLOYER_VERSION: 6.8.0
-  SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-  SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
 
 jobs:
 
@@ -23,24 +23,60 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Set custom environment variables
+        run: |
+          TIMESTAMP=$(date +'%s')
+          BRANCH=${GITHUB_REF#refs/heads/}
+          SHA_SHORT=${GITHUB_SHA:0:8}
+          CHECK_SUITE_URL=$(curl -s -H "authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} | jq -r '.check_suite_url')
+          CHECK_RUN_ID=$(curl -s -H "authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github.antiope-preview+json" $CHECK_SUITE_URL/check-runs | jq '.check_runs[] | select(.name=="Deploy") | .id ')
+
+          echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
+          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
+          echo "SHA_SHORT=$SHA_SHORT" >> $GITHUB_ENV
+          echo "CHECK_RUN_ID=$CHECK_RUN_ID" >> $GITHUB_ENV
+          if [ "$BRANCH" == "production" ]; then
+            echo "ENVIRONMENT=production" >> $GITHUB_ENV
+            echo "ENVIRONMENT_URL=${{ env.ENVIRONMENT_URL_PRODUCTION }}" >> $GITHUB_ENV
+          fi;
+
+      - name: Send init Slack notification
+        id: slack
+        uses: wearerequired/slack-messaging-action@v1
+        with:
+          bot_token: ${{ secrets.SLACK_BOT_TOKEN }}
+          channel: ${{ secrets.SLACK_CHANNEL }}
+          payload: >-
+            {
+              "icon_emoji": ":rocket:",
+              "username": "Deployer",
+              "attachments": [
+                {
+                  "author_name": "${{ github.event.sender.login }}",
+                  "author_link": "${{ github.event.sender.html_url }}",
+                  "author_icon": "${{ github.event.sender.avatar_url }}",
+                  "color": "warning",
+                  "fallback": "Deployment initialized.",
+                  "pretext": "Deployment initialized.",
+                  "actions": [
+                      {
+                        "type": "button",
+                        "text": "View log",
+                        "url": "https://github.com/${{ github.repository }}/runs/${{ env.CHECK_RUN_ID }}?check_suite_focus=true"
+                      }
+                  ],
+                  "footer": "<https://github.com/${{ github.repository }}|${{ github.repository }}>",
+                  "ts": "${{ env.TIMESTAMP }}"
+                }
+              ]
+            }
+
       - name: Cancel previous jobs
         uses: styfle/cancel-workflow-action@0.5.0
         with:
           access_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set BRANCH
-        run: echo "::set-env name=BRANCH::$(echo ${GITHUB_REF#refs/heads/})"
-
-      - name: Set COMMIT_SHA_SHORT
-        run: echo "::set-env name=COMMIT_SHA_SHORT::$(echo $GITHUB_SHA | cut -c1-8)"
-
-      - name: Set ENVIRONMENT and ENVIRONMENT_URL for production
-        if: ${{ env.BRANCH == 'production' }}
-        run: |
-          echo "::set-env name=ENVIRONMENT::production"
-          echo "::set-env name=ENVIRONMENT_URL::${{ env.ENVIRONMENT_URL_PRODUCTION }}"
-
-      - name: Start deployment
+      - name: Set GitHub deployment status
         if: ${{ github.event_name != 'deployment' }}
         uses: bobheadxi/deployments@v0.4.2
         id: deployment
@@ -56,37 +92,190 @@ jobs:
         with:
           php-version: "7.4"
           coverage: none
-          tools: composer
+          tools: deployer
 
-      - name: Set up SSH and Deployer
-        uses: atymic/deployer-php-action@0.1.1
-        with:
-          ssh-private-key: ${{ secrets.DEPLOYER_SSH_PRIVATE_KEY }}
-          ssh-known-hosts: ${{ secrets.DEPLOYER_SSH_KNOWN_HOSTS }}
-          deployer-version: ${{ env.DEPLOYER_VERSION }}
-
-      - name: Deploy
+      - name: Set up SSH
         run: |
-          dep deploy $ENVIRONMENT --branch $BRANCH
+            mkdir ~/.ssh
+            echo "${{ secrets.DEPLOYER_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+            chmod 400 ~/.ssh/id_rsa
+            echo "${{ secrets.DEPLOYER_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+            chmod 644 ~/.ssh/known_hosts
 
-      - name: Get current date
+      - name: Update custom environment variables
+        run: echo "TIMESTAMP=$(date +'%s')" >> $GITHUB_ENV
+
+      - name: Send start Slack notification
+        uses: wearerequired/slack-messaging-action@v1
+        with:
+          bot_token: ${{ secrets.SLACK_BOT_TOKEN }}
+          channel: ${{ secrets.SLACK_CHANNEL }}
+          message_id: ${{ steps.slack.outputs.message_id }}
+          payload: >-
+            {
+              "icon_emoji": ":rocket:",
+              "username": "Deployer",
+              "attachments": [
+                {
+                  "author_name": "${{ github.event.sender.login }}",
+                  "author_link": "${{ github.event.sender.html_url }}",
+                  "author_icon": "${{ github.event.sender.avatar_url }}",
+                  "color": "warning",
+                  "fallback": "Deployment started.",
+                  "pretext": "Deployment started.",
+                  "fields": [
+                    {
+                      "title": "Environment",
+                      "value": "<${{ env.ENVIRONMENT_URL }}|${{ env.ENVIRONMENT_URL }}> [${{ env.ENVIRONMENT }}]",
+                      "short": true
+                    },
+                    {
+                      "title": "Revision",
+                      "value": "<https://github.com/${{ github.repository }}/commit/${{ github.sha }}|${{ env.SHA_SHORT }}@${{ env.BRANCH }}>",
+                      "short": true
+                    }
+                  ],
+                  "actions": [
+                      {
+                        "type": "button",
+                        "text": "View log",
+                        "url": "https://github.com/${{ github.repository }}/runs/${{ env.CHECK_RUN_ID }}?check_suite_focus=true"
+                      }
+                  ],
+                  "footer": "<https://github.com/${{ github.repository }}|${{ github.repository }}>",
+                  "ts": "${{ env.TIMESTAMP }}"
+                }
+              ]
+            }
+
+      - name: Deploy via Deployer
+        run: |
+          deployer deploy $ENVIRONMENT --branch $BRANCH
+
+      - name: Update custom environment variables
         if: ${{ always() }}
-        id: date
-        run: echo "::set-output name=ts::$(date +'%s')"
+        run: echo "TIMESTAMP=$(date +'%s')" >> $GITHUB_ENV
 
       - name: Send success Slack notification
         if: ${{ success() }}
-        uses: Ilshidur/action-slack@2.1.0
-        env:
-          SLACK_CUSTOM_PAYLOAD: '{"icon_emoji":":rocket:","channel":"${{ env.SLACK_CHANNEL }}","username":"Deployer","attachments":[{"author_name":"${{ github.event.sender.login }}","author_link":"${{ github.event.sender.html_url }}","author_icon":"${{ github.event.sender.avatar_url }}","color":"good","pretext":"Project successfully deployed.","fields":[{"title":"Environment","value":"<${{ env.ENVIRONMENT_URL }}|${{ env.ENVIRONMENT_URL }}> [${{ env.ENVIRONMENT }}]","short":true},{"title":"Revision","value":"<https://github.com/${{ github.repository }}/commit/${{ env.COMMIT_SHA_SHORT }}|${{ env.COMMIT_SHA_SHORT }}@${{ env.BRANCH }}>","short":true}],"footer":"<https://github.com/${{ github.repository }}|${{ github.repository }}>","footer_icon":"https://github.githubassets.com/favicon.ico","ts":"${{ steps.date.outputs.ts }}"}]}'
+        uses: wearerequired/slack-messaging-action@v1
+        with:
+          bot_token: ${{ secrets.SLACK_BOT_TOKEN }}
+          channel: ${{ secrets.SLACK_CHANNEL }}
+          message_id: ${{ steps.slack.outputs.message_id }}
+          payload: >-
+            {
+              "icon_emoji": ":rocket:",
+              "username": "Deployer",
+              "attachments": [
+                {
+                  "author_name": "${{ github.event.sender.login }}",
+                  "author_link": "${{ github.event.sender.html_url }}",
+                  "author_icon": "${{ github.event.sender.avatar_url }}",
+                  "color": "good",
+                  "fallback": "Deployment finished.",
+                  "pretext": "Deployment finished.",
+                  "fields": [
+                    {
+                      "title": "Environment",
+                      "value": "<${{ env.ENVIRONMENT_URL }}|${{ env.ENVIRONMENT_URL }}> [${{ env.ENVIRONMENT }}]",
+                      "short": true
+                    },
+                    {
+                      "title": "Revision",
+                      "value": "<https://github.com/${{ github.repository }}/commit/${{ github.sha }}|${{ env.SHA_SHORT }}@${{ env.BRANCH }}>",
+                      "short": true
+                    }
+                  ],
+                  "actions": [
+                      {
+                        "type": "button",
+                        "text": "View wp-admin",
+                        "url": "${{ env.ENVIRONMENT_URL }}/wp-admin/"
+                      }
+                  ],
+                  "footer": "<https://github.com/${{ github.repository }}|${{ github.repository }}>",
+                  "ts": "${{ env.TIMESTAMP }}"
+                }
+              ]
+            }
 
       - name: Send failure Slack notification
         if: ${{ failure() }}
-        uses: Ilshidur/action-slack@2.1.0
-        env:
-          SLACK_CUSTOM_PAYLOAD: '{"icon_emoji":":boom:","channel":"${{ env.SLACK_CHANNEL }}","username":"Deployer","attachments":[{"author_name":"${{ github.event.sender.login }}","author_link":"${{ github.event.sender.html_url }}","author_icon":"${{ github.event.sender.avatar_url }}","color":"danger","pretext":"Project could not be deployed.","fields":[{"title":"Environment","value":"<${{ env.ENVIRONMENT_URL }}|${{ env.ENVIRONMENT_URL }}> [${{ env.ENVIRONMENT }}]","short":true},{"title":"Revision","value":"<https://github.com/${{ github.repository }}/commit/${{ env.COMMIT_SHA_SHORT }}|${{ env.COMMIT_SHA_SHORT }}@${{ env.BRANCH }}>","short":true},{"title":"Details","value":"<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Log>","short":true}],"footer":"<https://github.com/${{ github.repository }}|${{ github.repository }}>","footer_icon":"https://github.githubassets.com/favicon.ico","ts":"${{ steps.date.outputs.ts }}"}]}'
+        uses: wearerequired/slack-messaging-action@v1
+        with:
+          bot_token: ${{ secrets.SLACK_BOT_TOKEN }}
+          channel: ${{ secrets.SLACK_CHANNEL }}
+          message_id: ${{ steps.slack.outputs.message_id }}
+          payload: >-
+            {
+              "icon_emoji": ":boom:",
+              "username": "Deployer",
+              "attachments": [
+                {
+                  "author_name": "${{ github.event.sender.login }}",
+                  "author_link": "${{ github.event.sender.html_url }}",
+                  "author_icon": "${{ github.event.sender.avatar_url }}",
+                  "color": "danger",
+                  "fallback": "Deployment failed.",
+                  "pretext": "Deployment failed.",
+                  "fields": [
+                    {
+                      "title": "Environment",
+                      "value": "<${{ env.ENVIRONMENT_URL }}|${{ env.ENVIRONMENT_URL }}> [${{ env.ENVIRONMENT }}]",
+                      "short": true
+                    },
+                    {
+                      "title": "Revision",
+                      "value": "<https://github.com/${{ github.repository }}/commit/${{ github.sha }}|${{ env.SHA_SHORT }}@${{ env.BRANCH }}>",
+                      "short": true
+                    }
+                  ],
+                  "actions": [
+                      {
+                        "type": "button",
+                        "text": "View log",
+                        "url": "https://github.com/${{ github.repository }}/runs/${{ env.CHECK_RUN_ID }}?check_suite_focus=true"
+                      }
+                  ],
+                  "footer": "<https://github.com/${{ github.repository }}|${{ github.repository }}>",
+                  "ts": "${{ env.TIMESTAMP }}"
+                }
+              ]
+            }
 
-      - name: Update deployment status (deployment event)
+      - name: Send cancelled Slack notification
+        if: ${{ cancelled() }}
+        uses: wearerequired/slack-messaging-action@v1
+        with:
+          bot_token: ${{ secrets.SLACK_BOT_TOKEN }}
+          channel: ${{ secrets.SLACK_CHANNEL }}
+          message_id: ${{ steps.slack.outputs.message_id }}
+          payload: >-
+            {
+              "icon_emoji": ":rocket:",
+              "username": "Deployer",
+              "attachments": [
+                {
+                  "author_name": "${{ github.event.sender.login }}",
+                  "author_link": "${{ github.event.sender.html_url }}",
+                  "author_icon": "${{ github.event.sender.avatar_url }}",
+                  "fallback": "Deployment cancelled.",
+                  "pretext": "Deployment cancelled.",
+                  "actions": [
+                      {
+                        "type": "button",
+                        "text": "View log",
+                        "url": "https://github.com/${{ github.repository }}/runs/${{ env.CHECK_RUN_ID }}?check_suite_focus=true"
+                      }
+                  ],
+                  "footer": "<https://github.com/${{ github.repository }}|${{ github.repository }}>",
+                  "ts": "${{ env.TIMESTAMP }}"
+                }
+              ]
+            }
+
+      - name: Update GitHub deployment status (deployment event)
         uses: bobheadxi/deployments@v0.4.2
         if: ${{ github.event_name == 'deployment' && always() }}
         with:
@@ -97,7 +286,7 @@ jobs:
           env_url: ${{ env.ENVIRONMENT_URL }}
           deployment_id: ${{ github.event.deployment.id }}
 
-      - name: Update deployment status (push event)
+      - name: Update GitHub deployment status (push event)
         uses: bobheadxi/deployments@v0.4.2
         if: ${{ github.event_name != 'deployment' && always() }}
         with:
@@ -108,9 +297,9 @@ jobs:
           env_url: ${{ env.ENVIRONMENT_URL }}
           deployment_id: ${{ steps.deployment.outputs.deployment_id }}
 
-      - name: Unlock deployment if job is cancelled
+      - name: Unlock Deployer
         if: ${{ cancelled() }}
         run: |
-          if hash dep 2>/dev/null; then
-            dep deploy:unlock $ENVIRONMENT
+          if hash deployer 2>/dev/null; then
+            deployer deploy:unlock $ENVIRONMENT
           fi;
