@@ -95,11 +95,19 @@ jobs:
 
       - name: Set up SSH
         run: |
-            mkdir ~/.ssh
-            echo "${{ secrets.DEPLOYER_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-            chmod 400 ~/.ssh/id_rsa
-            echo "${{ secrets.DEPLOYER_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
-            chmod 644 ~/.ssh/known_hosts
+          mkdir ~/.ssh
+          if [ -f ".github/ssh_config" ]; then
+            cp .github/ssh_config ~/.ssh/config
+            chmod 644 ~/.ssh/config
+          fi
+          cat ~/.ssh/config
+          echo "${{ secrets.DEPLOYER_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 400 ~/.ssh/id_rsa
+          echo "${{ secrets.DEPLOYER_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+          eval `ssh-agent -s`
+          ssh-add ~/.ssh/id_rsa
+          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> $GITHUB_ENV
 
       - name: Update custom environment variables
         run: echo "TIMESTAMP=$(date +'%s')" >> $GITHUB_ENV
@@ -149,7 +157,7 @@ jobs:
 
       - name: Deploy via Deployer
         run: |
-          deployer deploy $ENVIRONMENT --branch $BRANCH
+          deployer deploy $ENVIRONMENT --branch $BRANCH --parallel
 
       - name: Update custom environment variables
         if: ${{ always() }}
