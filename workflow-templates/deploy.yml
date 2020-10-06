@@ -100,7 +100,6 @@ jobs:
             cp .github/ssh_config ~/.ssh/config
             chmod 644 ~/.ssh/config
           fi
-          cat ~/.ssh/config
           echo "${{ secrets.DEPLOYER_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 400 ~/.ssh/id_rsa
           echo "${{ secrets.DEPLOYER_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
