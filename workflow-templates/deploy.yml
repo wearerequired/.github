@@ -20,8 +20,14 @@ jobs:
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
+    timeout-minutes: 8
 
     steps:
+      - name: Cancel previous jobs
+        uses: styfle/cancel-workflow-action@0.5.0
+        with:
+          access_token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set custom environment variables
         run: |
           TIMESTAMP=$(date +'%s')
@@ -70,10 +76,13 @@ jobs:
               ]
             }
 
-      - name: Cancel previous jobs
-        uses: styfle/cancel-workflow-action@0.5.0
+      - name: Wait for concurrent builds to finish
+        uses: softprops/turnstyle@v0.1.3
         with:
-          access_token: ${{ secrets.GITHUB_TOKEN }}
+          continue-after-seconds: 120
+          poll-interval-seconds: 10
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set GitHub deployment status
         if: ${{ github.event_name != 'deployment' }}
@@ -157,6 +166,13 @@ jobs:
       - name: Deploy via Deployer
         run: |
           deployer deploy $ENVIRONMENT --branch $BRANCH --parallel
+
+      - name: Unlock Deployer
+        if: ${{ cancelled() }}
+        run: |
+          if hash deployer 2>/dev/null; then
+            deployer deploy:unlock $ENVIRONMENT
+          fi;
 
       - name: Update custom environment variables
         if: ${{ always() }}
@@ -302,10 +318,3 @@ jobs:
           status: ${{ job.status }}
           env_url: ${{ env.ENVIRONMENT_URL }}
           deployment_id: ${{ steps.deployment.outputs.deployment_id }}
-
-      - name: Unlock Deployer
-        if: ${{ cancelled() }}
-        run: |
-          if hash deployer 2>/dev/null; then
-            deployer deploy:unlock $ENVIRONMENT
-          fi;
