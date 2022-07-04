@@ -4,7 +4,7 @@
 #
 #     jobs:
 #          deploy:
-#               uses: wearerequired/.github/.github/workflows/deploy.yml@deploy-workflow@v1
+#               uses: wearerequired/.github/.github/workflows/deploy.yml@v1-deploy-workflow
 #               secrets: inherit
 
 name: Deploy
