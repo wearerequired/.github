@@ -17,5 +17,5 @@ concurrency:
 
 jobs:
   deploy:
-    uses: wearerequired/.github/.github/workflows/deploy.yml@master
+    uses: wearerequired/.github/.github/workflows/deploy.yml@v1-deploy-workflow
     secrets: inherit
