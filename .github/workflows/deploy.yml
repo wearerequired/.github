@@ -1,3 +1,12 @@
+# Resuable workflow that will automatically deploy a desired branch to a server via Deployer.
+#
+# Usage:
+#
+#     jobs:
+#          deploy:
+#               uses: wearerequired/.github/.github/workflows/deploy.yml@deploy-workflow@v1
+#               secrets: inherit
+
 name: Deploy
 
 on:
