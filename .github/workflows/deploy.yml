@@ -1,5 +1,7 @@
 # Resuable workflow that will automatically deploy a desired branch to a server via Deployer.
 #
+# 🆕 For Deployer v7 support use https://github.com/wearerequired/composer-deployer/blob/master/.github/workflows/deploy.yml.
+#
 # Usage:
 #
 #     jobs:
