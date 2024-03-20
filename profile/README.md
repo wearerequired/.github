@@ -1,6 +1,8 @@
-## we are required
+# We are required
 
-We are your digital agency for strategy, design & web development.
+![poser-we-are-required](https://github.com/wearerequired/.github/assets/1146235/be559b96-c1f0-42b4-8bb8-41a49dce5953)
+
+## We are your digital agency for strategy, design & web development.
 
 Currently we are working on the following projects:
 
